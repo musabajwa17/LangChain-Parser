@@ -48,9 +48,16 @@ Extract the following structured information from the resume below:
 - name
 - email
 - phone
-- Skills
-- Education (degree, institution, year)
-- Work Experience (role, company, years)
+- skills
+- summary
+- education (degree, institution, year)
+- experience (role, company, years)
+- projects (name, technologies, description, link)
+- certifications (title)
+- location
+- github
+- linedin
+- title
 
 Return ONLY valid JSON format (no explanations, no extra text).
 
