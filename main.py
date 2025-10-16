@@ -53,7 +53,7 @@ Extract the following structured information from the resume below:
 - education (degree, institution, year)
 - experience (role, company, years)
 - projects (name, technologies, description, link)
-- certifications (title)
+- certifications
 - location
 - github
 - linedin
