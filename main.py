@@ -1,4 +1,5 @@
 import os
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
@@ -21,7 +22,16 @@ llm = ChatGroq(
 # Initialize FastAPI
 app = FastAPI(title="Resume Parser API")
 
-# Function to extract text from PDF
+# Enable CORS (very important for your frontend)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Extract text from PDF
 def extract_text_from_pdf(file_path: str) -> str:
     reader = PdfReader(file_path)
     text = ""
@@ -29,15 +39,15 @@ def extract_text_from_pdf(file_path: str) -> str:
         text += page.extract_text() or ""
     return text
 
-# Prompt template for structured extraction
+# Prompt template for structured output
 template = PromptTemplate(
     input_variables=["resume_text"],
     template="""
 Extract the following structured information from the resume below:
 
-- Full Name
-- Email
-- Phone Number
+- name
+- email
+- phone
 - Skills
 - Education (degree, institution, year)
 - Work Experience (role, company, years)
@@ -49,36 +59,36 @@ Resume Text:
 """
 )
 
-# API endpoint
+# ---------------------------
+# ✅ Resume Parsing Endpoint
+# ---------------------------
 @app.post("/parse-resume")
 async def parse_resume(file: UploadFile = File(...)):
     try:
-        # Save uploaded PDF temporarily
         temp_path = f"temp_{file.filename}"
         with open(temp_path, "wb") as f:
             f.write(await file.read())
 
-        # Extract text from PDF
         resume_text = extract_text_from_pdf(temp_path)
 
-        # Run LLM
         chain = template | llm
         structured_response = chain.invoke({"resume_text": resume_text}).content
 
-        # Clean up JSON
-        structured_response = structured_response.replace("```json", "").replace("```", "").strip()
+        # Clean JSON
+        structured_response = (
+            structured_response.replace("```json", "")
+            .replace("```", "")
+            .strip()
+        )
         structured_data = json.loads(structured_response)
 
-        # Optionally, convert to DataFrame for internal usage
-        df = pd.DataFrame([structured_data])
-
-        # Remove temp file
         os.remove(temp_path)
 
         return JSONResponse(content=structured_data)
-
     except Exception as e:
-        return JSONResponse(
-            content={"error": str(e), "raw_response": structured_response if 'structured_response' in locals() else None},
-            status_code=500
-        )
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+# Simple test route
+@app.get("/")
+def home():
+    return {"message": "✅ Resume Parser API running"}
