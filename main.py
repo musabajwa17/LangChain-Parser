@@ -1,15 +1,20 @@
 import os
-from fastapi.middleware.cors import CORSMiddleware
+import json
+import re
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain.prompts import PromptTemplate
 from PyPDF2 import PdfReader
-import json
-import pandas as pd
+from pdf2image import convert_from_path
+from docx import Document
+import pytesseract
 
+# ----------------------------
 # Load environment variables
+# ----------------------------
 load_dotenv()
 
 # Initialize Groq LLM
@@ -22,24 +27,66 @@ llm = ChatGroq(
 # Initialize FastAPI
 app = FastAPI(title="Resume Parser API")
 
-# Enable CORS (very important for your frontend)
+# Enable CORS for frontend connection
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["*"],  # use ["http://localhost:3000"] in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Extract text from PDF
+# ----------------------------
+# PDF TEXT EXTRACTION (with OCR fallback)
+# ----------------------------
 def extract_text_from_pdf(file_path: str) -> str:
-    reader = PdfReader(file_path)
     text = ""
-    for page in reader.pages:
-        text += page.extract_text() or ""
-    return text
+    try:
+        reader = PdfReader(file_path)
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text
+    except Exception:
+        pass
 
-# Prompt template for structured output
+    # If no text found, try OCR
+    if not text.strip():
+        try:
+            images = convert_from_path(file_path)
+            ocr_text = "\n".join(pytesseract.image_to_string(img) for img in images)
+            text += ocr_text
+        except Exception as e:
+            print("OCR failed:", e)
+
+    return text.strip()
+
+# ----------------------------
+# DOCX TEXT EXTRACTION
+# ----------------------------
+def extract_text_from_docx(file_path: str) -> str:
+    try:
+        doc = Document(file_path)
+        return "\n".join([para.text for para in doc.paragraphs])
+    except Exception as e:
+        print("DOCX extraction failed:", e)
+        return ""
+
+# ----------------------------
+# CLEAN & VALIDATE JSON OUTPUT
+# ----------------------------
+def clean_json_output(text: str):
+    text = text.replace("```json", "").replace("```", "").strip()
+    text = re.sub(r'^[^{]*', '', text)
+    text = re.sub(r'[^}]*$', '', text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"error": "Invalid JSON output from LLM", "raw_output": text}
+
+# ----------------------------
+# PROMPT TEMPLATE
+# ----------------------------
 template = PromptTemplate(
     input_variables=["resume_text"],
     template="""
@@ -56,7 +103,7 @@ Extract the following structured information from the resume below:
 - certifications
 - location
 - github
-- linedin
+- linkedin
 - title
 
 Return ONLY valid JSON format (no explanations, no extra text).
@@ -66,36 +113,53 @@ Resume Text:
 """
 )
 
-# ---------------------------
-# ✅ Resume Parsing Endpoint
-# ---------------------------
+# ----------------------------
+# MAIN PARSING ENDPOINT
+# ----------------------------
 @app.post("/parse-resume")
 async def parse_resume(file: UploadFile = File(...)):
     try:
+        # ✅ File type validation
+        if not (file.filename.lower().endswith(".pdf") or file.filename.lower().endswith(".docx")):
+            return JSONResponse(
+                content={"error": "Unsupported file type. Please upload PDF or DOCX only."},
+                status_code=400,
+            )
+
+        # ✅ Save temp file
         temp_path = f"temp_{file.filename}"
         with open(temp_path, "wb") as f:
             f.write(await file.read())
 
-        resume_text = extract_text_from_pdf(temp_path)
+        # ✅ Choose extraction method
+        if file.filename.lower().endswith(".pdf"):
+            resume_text = extract_text_from_pdf(temp_path)
+        else:
+            resume_text = extract_text_from_docx(temp_path)
 
+        if not resume_text.strip():
+            os.remove(temp_path)
+            return JSONResponse(
+                content={"error": "No readable text found. Try uploading a text-based resume."},
+                status_code=400,
+            )
+
+        resume_text = resume_text[:6000]
+
+        # ✅ Generate structured JSON using LLM
         chain = template | llm
         structured_response = chain.invoke({"resume_text": resume_text}).content
-
-        # Clean JSON
-        structured_response = (
-            structured_response.replace("```json", "")
-            .replace("```", "")
-            .strip()
-        )
-        structured_data = json.loads(structured_response)
+        structured_data = clean_json_output(structured_response)
 
         os.remove(temp_path)
-
         return JSONResponse(content=structured_data)
+
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
-# Simple test route
+# ----------------------------
+# HEALTH CHECK
+# ----------------------------
 @app.get("/")
 def home():
-    return {"message": "✅ Resume Parser API running"}
+    return {"message": "✅ Resume Parser API is running properly"}
