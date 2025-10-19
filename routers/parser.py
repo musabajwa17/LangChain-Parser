@@ -91,7 +91,7 @@ Extract the following structured information from the resume below:
 - summary
 - education (degree, institution, year)
 - experience (role, company, years)
-- projects (name, technologies, description, link)
+- projects (name, domain, description, link)
 - certifications
 - location
 - github
