@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routers import parser  # import your parser router
-from routers import parser, enrich
+from routers import parser, enrich, employeeParser
 
 app = FastAPI(title="TaaS Grid Resume Parser API")
 
@@ -16,7 +16,7 @@ app.add_middleware(
 # Include routers
 app.include_router(parser.router)
 app.include_router(enrich.router)
-
+app.include_router(employeeParser.router)
 @app.get("/")
 def home():
     return {"message": "✅ TaaS Grid Backend is running properly"}
