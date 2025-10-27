@@ -135,7 +135,7 @@ async def parse_resume(file: UploadFile = File(...)):
             os.remove(temp_path)
             return JSONResponse(content={"error": "No readable text found. Try uploading a text-based resume."}, status_code=400)
 
-        resume_text = resume_text[:15000]
+        resume_text = resume_text[:6000]
         chain = template | llm
         structured_response = chain.invoke({"resume_text": resume_text}).content
         structured_data = clean_json_output(structured_response)
