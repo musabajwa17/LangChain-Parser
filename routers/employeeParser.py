@@ -89,7 +89,7 @@ Extract the following structured information from the resume below:
 - phone
 - citations
 - impactFactor
-= scholar
+- scholar
 - education (degree, institution, year)
 - experience (role, institute, years)
 - achievements
