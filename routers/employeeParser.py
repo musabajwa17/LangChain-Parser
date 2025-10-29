@@ -91,7 +91,7 @@ Extract the following structured information from the resume below:
 - impactFactor
 - scholar
 - education (degree, institution, year)
-- experience (role, institute, years)
+- experience (role, company, years)
 - achievements
 - bookAuthorship
 - journalGuestEditor
