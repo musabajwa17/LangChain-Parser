@@ -50,7 +50,6 @@ def extract_text_from_pdf(file_path: str) -> str:
             print("OCR failed:", e)
     return text.strip()
 
-
 # ----------------------------
 # DOCX TEXT EXTRACTION
 # ----------------------------
@@ -61,7 +60,6 @@ def extract_text_from_docx(file_path: str) -> str:
     except Exception as e:
         print("DOCX extraction failed:", e)
         return ""
-
 
 # ----------------------------
 # CLEAN JSON OUTPUT
@@ -75,6 +73,77 @@ def clean_json_output(text: str):
     except json.JSONDecodeError:
         return {"error": "Invalid JSON output from LLM", "raw_output": text}
 
+# ----------------------------
+# NORMALIZE RESUME DATA
+# ----------------------------
+def normalize_resume(data: dict):
+    def normalize_list_of_strings(arr, key="name"):
+        if isinstance(arr, list):
+            # Deduplicate and convert strings → objects
+            unique = list(dict.fromkeys(arr))
+            return [{key: item} if isinstance(item, str) else item for item in unique]
+        return []
+
+    # Ensure keys exist
+    keys_with_array_objects = ["certifications", "education", "experience", "projects"]
+    for key in keys_with_array_objects:
+        if key not in data or not isinstance(data[key], list):
+            data[key] = []
+
+    # Normalize certifications
+    data["certifications"] = normalize_list_of_strings(data.get("certifications", []), key="name")
+
+    # Normalize education
+    normalized_edu = []
+    for edu in data.get("education", []):
+        if isinstance(edu, str):
+            normalized_edu.append({"degree": edu, "institution": "", "year": ""})
+        else:
+            normalized_edu.append({
+                "degree": edu.get("degree", ""),
+                "institution": edu.get("institution", ""),
+                "year": edu.get("year", "")
+            })
+    data["education"] = normalized_edu
+
+    # Normalize experience
+    normalized_exp = []
+    for exp in data.get("experience", []):
+        if isinstance(exp, str):
+            normalized_exp.append({"role": exp, "company": "", "years": ""})
+        else:
+            normalized_exp.append({
+                "role": exp.get("role", ""),
+                "company": exp.get("company", ""),
+                "years": exp.get("years", "")
+            })
+    data["experience"] = normalized_exp
+
+    # Normalize projects
+    normalized_proj = []
+    for proj in data.get("projects", []):
+        if isinstance(proj, str):
+            normalized_proj.append({"name": proj, "domain": "", "description": "", "link": ""})
+        else:
+            normalized_proj.append({
+                "name": proj.get("name", ""),
+                "domain": proj.get("domain", ""),
+                "description": proj.get("description", ""),
+                "link": proj.get("link", "")
+            })
+    data["projects"] = normalized_proj
+
+    # Skills → ensure array of strings
+    if not isinstance(data.get("skills"), list):
+        data["skills"] = []
+
+    # Other optional fields
+    optional_fields = ["name", "email", "phone", "summary", "location", "github", "linkedin", "title"]
+    for field in optional_fields:
+        if field not in data:
+            data[field] = ""
+
+    return data
 
 # ----------------------------
 # PROMPT TEMPLATE
@@ -92,7 +161,7 @@ Extract the following structured information from the resume below:
 - education (degree, institution, year)
 - experience (role, company, years)
 - projects (name, domain, description, link)
-- certifications
+- certifications (name)
 - location
 - github
 - linkedin
@@ -123,16 +192,17 @@ async def parse_resume(file: UploadFile = File(...)):
         else:
             resume_text = extract_text_from_docx(temp_path)
 
+        os.remove(temp_path)
+
         if not resume_text.strip():
-            os.remove(temp_path)
             return JSONResponse(content={"error": "No readable text found. Try uploading a text-based resume."}, status_code=400)
 
-        resume_text = resume_text[:6000]
+        resume_text = resume_text[:6000]  # limit for LLM
         chain = template | llm
         structured_response = chain.invoke({"resume_text": resume_text}).content
-        structured_data = clean_json_output(structured_response)
+        raw_data = clean_json_output(structured_response)
+        structured_data = normalize_resume(raw_data)
 
-        os.remove(temp_path)
         return JSONResponse(content=structured_data)
 
     except Exception as e:
